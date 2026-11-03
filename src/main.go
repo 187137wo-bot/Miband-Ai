@@ -42,26 +42,38 @@ func trimReply(s string, cfg *Config) string {
 	return reply
 }
 
+// ChatTurn 是一轮问答，用于多轮记忆。
+type ChatTurn struct {
+	Q string `json:"q"`
+	A string `json:"a"`
+}
+
 // askAPI 按 api_mode 分流：openai 直连大模型，custom 走自建桥。
-func askAPI(query string, cfg *Config) string {
+func askAPI(query string, cfg *Config, history []ChatTurn) string {
 	if cfg.APIMode == "custom" {
 		return askCustom(query, cfg)
 	}
-	return askOpenAI(query, cfg)
+	return askOpenAI(query, cfg, history)
 }
 
 // askOpenAI 走 OpenAI 兼容端点（DeepSeek / SiliconFlow / Ollama / vLLM 都行）。
-func askOpenAI(query string, cfg *Config) string {
+func askOpenAI(query string, cfg *Config, history []ChatTurn) string {
 	if cfg.APIKey == "" {
 		logf(cfg, "[!] api_key 为空，无法调用 %s", cfg.APIURL)
 		return ""
 	}
+	msgs := []map[string]string{
+		{"role": "system", "content": cfg.SystemPrompt},
+	}
+	for _, h := range history {
+		msgs = append(msgs, map[string]string{"role": "user", "content": h.Q})
+		msgs = append(msgs, map[string]string{"role": "assistant", "content": h.A})
+	}
+	msgs = append(msgs, map[string]string{"role": "user", "content": query})
+
 	payload := map[string]any{
-		"model": cfg.Model,
-		"messages": []map[string]string{
-			{"role": "system", "content": cfg.SystemPrompt},
-			{"role": "user", "content": query},
-		},
+		"model":       cfg.Model,
+		"messages":    msgs,
 		"max_tokens":  160,
 		"temperature": 0.7,
 		"stream":      false,

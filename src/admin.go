@@ -299,6 +299,26 @@ textarea { min-height: 80px; resize: vertical; font-family: monospace; }
   <input id="max_reply_chars" type="number" value="60">
 </div>
 
+<div class="field">
+  <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+    <input id="memory_enabled" type="checkbox" style="width:auto;margin:0">
+    <span>开启多轮记忆</span>
+  </label>
+  <div class="hint">开启后，短时间内连续提问会带上上文。不勾选 = 完全无记忆。</div>
+</div>
+
+<div class="field">
+  <label>记忆轮数</label>
+  <input id="memory_turns" type="number" value="3" min="1" max="50">
+  <div class="hint">最多带几组问答。💡 推荐 5-10 轮（手环息屏可在系统设置里调长）；轮数越多 token 消耗越大、响应越慢</div>
+</div>
+
+<div class="field">
+  <label>记忆窗口（秒）</label>
+  <input id="memory_window" type="number" value="90" min="10" max="3600">
+  <div class="hint">超过这个时间没说话就清空记忆。💡 推荐 120-300 秒，够聊完一个话题</div>
+</div>
+
 <button class="btn btn-save" onclick="save()">💾 保存配置</button>
 <button class="btn btn-log" onclick="savePreset()" style="background:#4ecca3;color:#1a1a2e">📌 存为预设</button>
 <button class="btn btn-log" onclick="testAPI()" id="btn-test" style="background:#f0a500;color:#1a1a2e">🔌 测试连通性</button>
@@ -379,6 +399,12 @@ async function load() {
       const el = document.getElementById(k);
       if (el && c[k] !== undefined) el.value = c[k];
     }
+    const memEl = document.getElementById('memory_enabled');
+    if (memEl && c.memory) {
+      memEl.checked = !!c.memory.enabled;
+      document.getElementById('memory_turns').value = c.memory.max_turns || 3;
+      document.getElementById('memory_window').value = c.memory.window_seconds || 90;
+    }
   } catch(e) { setStatus('加载失败: '+e.message, true); }
   renderHistory();
 }
@@ -392,7 +418,19 @@ async function save() {
   try {
     const old = await (await fetch('/api/config')).json();
     for (const k in old) { if (!(k in c)) c[k] = old[k]; }
-  } catch(e) {}
+    // 多轮记忆
+    c.memory = {
+      enabled: document.getElementById('memory_enabled').checked,
+      window_seconds: parseInt(document.getElementById('memory_window').value) || 90,
+      max_turns: parseInt(document.getElementById('memory_turns').value) || 3
+    };
+  } catch(e) {
+    c.memory = {
+      enabled: document.getElementById('memory_enabled').checked,
+      window_seconds: parseInt(document.getElementById('memory_window').value) || 90,
+      max_turns: parseInt(document.getElementById('memory_turns').value) || 3
+    };
+  }
 
   try {
     const r = await fetch('/api/config', {

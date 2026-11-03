@@ -107,7 +107,7 @@ const (
 	ActDrop
 )
 
-func rewriteFrame(payload []byte, cfg *Config, st *State) (Action, []byte) {
+func rewriteFrame(payload []byte, cfg *Config, st *State, hist *History) (Action, []byte) {
 	var data map[string]any
 	if err := json.Unmarshal(payload, &data); err != nil {
 		return ActNone, nil
@@ -145,11 +145,16 @@ func rewriteFrame(payload []byte, cfg *Config, st *State) (Action, []byte) {
 
 		old, _ := pl["text"].(string)
 
-		// 同步调 API（MiMo 通常 2-5 秒，可接受）
-		reply := askAPI(q, cfg)
+		// 带上下文调 API（多轮记忆开启时 history 非空）
+		history := hist.Get()
+		reply := askAPI(q, cfg, history)
 		if reply == "" {
 			logf(cfg, "[!] empty reply for did=%s q=%q", did, q)
 			return ActNone, nil
+		}
+		hist.Append(q, reply)
+		if len(history) > 0 {
+			logf(cfg, "[CTX] 带 %d 轮上下文", len(history))
 		}
 		pl["text"] = reply
 		data["payload"] = pl
@@ -270,6 +275,12 @@ func handleMITM(client net.Conn, host string, cfg *Config, ca *CA, st *State) {
 
 	logf(cfg, "[WS] upgraded %s", req.URL.Path)
 
+	// 每个连接一份独立的多轮记忆，避免串话
+	hist := NewHistory(cfg.Memory)
+	if cfg.Memory.Enabled {
+		logf(cfg, "[MEM] 多轮记忆已开启 window=%ds turns=%d", cfg.Memory.WindowSeconds, cfg.Memory.MaxTurns)
+	}
+
 	go func() {
 		io.Copy(upstream, br)
 		upstream.Close()
@@ -283,7 +294,7 @@ func handleMITM(client net.Conn, host string, cfg *Config, ca *CA, st *State) {
 		}
 
 		if opcode == opText {
-			act, nb := rewriteFrame(payload, cfg, st)
+			act, nb := rewriteFrame(payload, cfg, st, hist)
 			switch act {
 			case ActDrop:
 				continue

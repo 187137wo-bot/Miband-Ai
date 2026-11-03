@@ -23,9 +23,35 @@ type Config struct {
 	// AllowThinking 是否允许模型思考（推理模式）。默认 false，请求里显式关闭思考。
 	AllowThinking bool `json:"allow_thinking"`
 
+	// 多轮记忆（默认关闭）。开启后同一连接内短期内的问题会带上上下文。
+	Memory MemoryConfig `json:"memory"`
+
 	DeviceNamespaces []string `json:"device_namespaces"`
 	DeviceTemplates  []string `json:"device_templates"`
 	DeviceKeywords   []string `json:"device_keywords"`
+}
+
+// MemoryConfig 多轮记忆配置。
+type MemoryConfig struct {
+	Enabled       bool `json:"enabled"`
+	WindowSeconds int  `json:"window_seconds"`
+	MaxTurns      int  `json:"max_turns"`
+}
+
+func (m MemoryConfig) normalized() MemoryConfig {
+	if m.WindowSeconds <= 0 {
+		m.WindowSeconds = 90
+	}
+	if m.WindowSeconds > 3600 {
+		m.WindowSeconds = 3600 // 上限 1 小时
+	}
+	if m.MaxTurns <= 0 {
+		m.MaxTurns = 3
+	}
+	if m.MaxTurns > 50 {
+		m.MaxTurns = 50 // 上限 50 轮，防止 token 爆炸
+	}
+	return m
 }
 
 const defaultSystemPrompt = "你正在回答一个智能手环用户，答案显示在不到 3 厘米宽的小屏幕上。" +
