@@ -37,9 +37,7 @@ func adminPage(w http.ResponseWriter, r *http.Request) {
 
 func adminAPI(cfgPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		adminMu.Lock()
-		defer adminMu.Unlock()
-
+		// GET 不加锁（读文件是原子的），避免被测试连通性等长任务阻塞
 		switch r.Method {
 		case http.MethodGet:
 			data, err := os.ReadFile(cfgPath)
@@ -51,6 +49,8 @@ func adminAPI(cfgPath string) http.HandlerFunc {
 			w.Write(data)
 
 		case http.MethodPost:
+			adminMu.Lock()
+			defer adminMu.Unlock()
 			body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
 			if err != nil {
 				http.Error(w, "read body: "+err.Error(), 400)
@@ -96,9 +96,7 @@ func adminLogs(w http.ResponseWriter, r *http.Request) {
 
 func adminTest(cfgPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		adminMu.Lock()
-		defer adminMu.Unlock()
-
+		// 不持全局锁：测试最长 10 秒，持锁会让配置页面打不开
 		var cfg Config
 
 		// 优先用请求体里的配置（Web UI 表单当前值），没有就读磁盘文件
