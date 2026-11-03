@@ -1,0 +1,6 @@
+id=bandai
+name=BandAI - 小米手环语音替换
+version=v1.0
+versionCode=1
+author=YG
+description=将小米手环的小爱同学替换为自定义大模型（MiMo/DeepSeek等），通过 iptables 透明代理 + WebSocket MITM 实现。支持 Web UI 配置。

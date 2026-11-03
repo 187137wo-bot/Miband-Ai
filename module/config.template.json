@@ -1,0 +1,12 @@
+{
+  "listen": "127.0.0.1:8080",
+  "tproxy_listen": "127.0.0.1:8081",
+  "api_mode": "openai",
+  "api_url": "https://api.xiaomimimo.com/v1/chat/completions",
+  "api_key": "",
+  "model": "mimo-v2.6-pro",
+  "system_prompt": "你正在回答一个智能手环用户，答案显示在不到3厘米宽的小屏幕上。规则：只输出一句话；不超过40个汉字；不要换行；不要Markdown；不要列举；不要解释你在做什么；直接给结论。如果问题涉及设备控制（闹钟、计时器、音量、亮度、智能家居），不要自己编指令，保持简短确认即可。",
+  "target_host": "speech.ai.xiaomi.com",
+  "max_reply_chars": 60,
+  "log_dir": "/data/adb/band-ai/logs"
+}
