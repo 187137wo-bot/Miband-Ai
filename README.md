@@ -65,12 +65,38 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ../
 
 ### 推荐的 API 服务
 
-| 服务 | Base URL | 备注 |
-|---|---|---|
-| 小米 MiMo | `https://api.xiaomimimo.com/v1/chat/completions` | 小米官方，计费 |
-| DeepSeek | `https://api.deepseek.com/chat/completions` | 高峰期可能 503 |
-| 硅基流动 | `https://api.siliconflow.cn/v1/chat/completions` | 多模型可选 |
-| 月之暗面 | `https://api.moonshot.cn/v1/chat/completions` | Kimi |
+| 服务 | Base URL | 推荐模型 | 备注 |
+|---|---|---|---|
+| 小米 MiMo | `https://api.xiaomimimo.com/v1` | `mimo-v2.6-pro` | 小米官方，计费 |
+| DeepSeek | `https://api.deepseek.com` | `deepseek-chat` | 高峰期可能 503 |
+| 硅基流动 | `https://api.siliconflow.cn/v1` | 见平台 | 多模型可选 |
+| 月之暗面 | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` | Kimi |
+
+> **API URL 自动补全**：填 base URL（如 `https://api.deepseek.com`）即可，会自动追加 `/chat/completions`。
+
+### ⚠️ 关于推理模型（已解决）
+
+项目默认在请求里**显式关闭思考模式**，因此推理模型也能正常使用，回答不会带思考过程。
+
+实测结果（DeepSeek）：
+
+| 参数 | 是否生效 |
+|---|---|
+| `thinking: {"type": "disabled"}` | ✅ 有效 |
+| `reasoning_effort: "none"` | ✅ 有效 |
+| `enable_thinking: false` | ❌ 无效 |
+| `chat_template_kwargs` | ❌ 无效 |
+
+代码里会同时带上上述参数，API 会忽略不认识的；如果某个 API 对未知参数报 400，会自动去掉这些参数重试一次。
+
+如需开启思考（不推荐，手环显示效果差），可在 `config.json` 里设置 `"allow_thinking": true`。
+
+**推荐模型**：
+
+| 场景 | 推荐 |
+|---|---|
+| 追求速度 | `deepseek-chat`、`mimo-v2.6-pro` |
+| 追求能力 | `deepseek-flash`（已自动关闭思考，速度略慢） |
 
 ## 🔧 原理
 

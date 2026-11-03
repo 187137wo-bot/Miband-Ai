@@ -66,35 +66,63 @@ func askOpenAI(query string, cfg *Config) string {
 		"temperature": 0.7,
 		"stream":      false,
 	}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequest(http.MethodPost, cfg.APIURL, bytes.NewReader(body))
-	if err != nil {
-		return ""
+	// 显式关闭思考模式：不同厂商的参数名不同，全都带上，API 会忽略不认识的
+	if !cfg.AllowThinking {
+		payload["thinking"] = map[string]string{"type": "disabled"}
+		payload["enable_thinking"] = false
+		payload["reasoning_effort"] = "none"
+		payload["chat_template_kwargs"] = map[string]bool{"thinking": false}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	body, _ := json.Marshal(payload)
+	_ = body
 
 	cli := newHTTPClient(25 * time.Second)
 	t0 := time.Now()
-	resp, err := cli.Do(req)
+
+	// 单次请求；withThinking 控制是否携带 thinking 相关参数
+	tryOnce := func(withThinking bool) (int, []byte, error) {
+		p := make(map[string]any, len(payload))
+		for k, v := range payload {
+			p[k] = v
+		}
+		if !withThinking {
+			delete(p, "thinking")
+			delete(p, "enable_thinking")
+			delete(p, "reasoning_effort")
+			delete(p, "chat_template_kwargs")
+		}
+		b, _ := json.Marshal(p)
+		rq, e := http.NewRequest(http.MethodPost, cfg.APIURL, bytes.NewReader(b))
+		if e != nil {
+			return 0, nil, e
+		}
+		rq.Header.Set("Content-Type", "application/json")
+		rq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		rs, e := cli.Do(rq)
+		if e != nil {
+			return 0, nil, e
+		}
+		defer rs.Body.Close()
+		bs, _ := io.ReadAll(io.LimitReader(rs.Body, 64*1024))
+		return rs.StatusCode, bs, nil
+	}
+
+	code, respBytes, err := tryOnce(!cfg.AllowThinking)
 	if err != nil {
 		logf(cfg, "[!] api: %v", err)
 		return ""
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		buf := make([]byte, 300)
-		n, _ := resp.Body.Read(buf)
-		logf(cfg, "[!] api %d: %s", resp.StatusCode, string(buf[:n]))
-		return ""
+	// 400 可能是 API 不认识 thinking 参数，去掉后重试一次
+	if code == http.StatusBadRequest && !cfg.AllowThinking {
+		logf(cfg, "[api] 400 with thinking params, retry without: %s", string(respBytes[:min(200, len(respBytes))]))
+		code, respBytes, err = tryOnce(false)
+		if err != nil {
+			logf(cfg, "[!] api retry: %v", err)
+			return ""
+		}
 	}
-
-	// 先读完整响应体，方便调试
-	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	if err != nil {
-		logf(cfg, "[!] api read body: %v", err)
+	if code != http.StatusOK {
+		logf(cfg, "[!] api %d: %s", code, string(respBytes[:min(300, len(respBytes))]))
 		return ""
 	}
 
@@ -142,9 +170,24 @@ func askOpenAI(query string, cfg *Config) string {
 	if reply == "" {
 		reply = out.Choices[0].Delta.Content
 	}
-	// fallback: reasoning_content（deepseek-flash 等推理模型把答案放在这里）
+	// fallback: reasoning_content（推理模型）—— 只取最后一段作为结论
 	if reply == "" {
-		reply = out.Choices[0].Message.ReasoningContent
+		rc := out.Choices[0].Message.ReasoningContent
+		if rc != "" {
+			// 推理模型的思考链通常用换行分段，最后一段是结论
+			lines := strings.Split(strings.TrimSpace(rc), "\n")
+			// 从后往前找第一个非空行
+			for i := len(lines) - 1; i >= 0; i-- {
+				line := strings.TrimSpace(lines[i])
+				if line != "" {
+					reply = line
+					break
+				}
+			}
+			if reply == "" {
+				reply = rc // 兜底：整段都用
+			}
+		}
 	}
 	if reply == "" {
 		logf(cfg, "[!] api empty content: %s", string(respBytes[:min(300, len(respBytes))]))

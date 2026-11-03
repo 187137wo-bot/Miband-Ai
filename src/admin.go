@@ -144,6 +144,12 @@ func adminTest(cfgPath string) http.HandlerFunc {
 			"temperature": 0.7,
 			"stream":      false,
 		}
+		if !cfg.AllowThinking {
+			payload["thinking"] = map[string]string{"type": "disabled"}
+			payload["enable_thinking"] = false
+			payload["reasoning_effort"] = "none"
+			payload["chat_template_kwargs"] = map[string]bool{"thinking": false}
+		}
 		bodyBytes, _ := json.Marshal(payload)
 		req, err := http.NewRequest(http.MethodPost, cfg.APIURL, bytes.NewReader(bodyBytes))
 		if err != nil {
@@ -270,7 +276,8 @@ textarea { min-height: 80px; resize: vertical; font-family: monospace; }
 
 <div class="field">
   <label>模型名称</label>
-  <input id="model" placeholder="mimo-v2.6-pro">
+  <input id="model" placeholder="deepseek-chat / deepseek-flash / mimo-v2.6-pro">
+  <div class="hint">支持推理模型（如 deepseek-flash），请求会自动关闭思考模式，不会输出思考过程</div>
 </div>
 
 <div class="field">

@@ -20,6 +20,9 @@ type Config struct {
 	MaxReply   int    `json:"max_reply_chars"`
 	LogDir     string `json:"log_dir"`
 
+	// AllowThinking 是否允许模型思考（推理模式）。默认 false，请求里显式关闭思考。
+	AllowThinking bool `json:"allow_thinking"`
+
 	DeviceNamespaces []string `json:"device_namespaces"`
 	DeviceTemplates  []string `json:"device_templates"`
 	DeviceKeywords   []string `json:"device_keywords"`

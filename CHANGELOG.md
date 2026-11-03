@@ -1,5 +1,25 @@
 # 更新日志
 
+## v1.2 (2026-11-03)
+
+### 新增
+- **自动关闭思考模式**：请求里显式传 `thinking: {"type": "disabled"}` 和 `reasoning_effort: "none"`，推理模型（如 `deepseek-flash`）不再输出思考过程
+- 新增配置项 `allow_thinking`（默认 false），需要思考链时可开启
+- API 对未知参数报 400 时自动去掉这些参数重试
+
+### 实测结果
+| 参数 | 是否生效 |
+|---|---|
+| `thinking: {"type": "disabled"}` | ✅ 有效 |
+| `reasoning_effort: "none"` | ✅ 有效 |
+| `enable_thinking: false` | ❌ 无效 |
+| `chat_template_kwargs` | ❌ 无效 |
+
+### 修复
+- API URL 自动补全逻辑同步到 Web UI 测试接口（之前测试时不补全会 404）
+
+---
+
 ## v1.1 (2026-11-03)
 
 ### 新增
