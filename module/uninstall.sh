@@ -1,7 +1,20 @@
 #!/system/bin/sh
-# 卸载时清理
+# 卸载时恢复手机原状
+BASE=/data/adb/band-ai
 
-# 清除 iptables 规则
+if [ -f "$BASE/bandai.pid" ]; then
+    kill "$(cat "$BASE/bandai.pid")" 2>/dev/null
+fi
+pkill -f bandai 2>/dev/null
+
+settings put global http_proxy :0 2>/dev/null
+settings delete global http_proxy 2>/dev/null
+settings delete global global_http_proxy_host 2>/dev/null
+settings delete global global_http_proxy_port 2>/dev/null
+
+rm -rf "$BASE"
+
+# P4: 清除 iptables / ip6tables 规则
 UID=$(stat -c %u /data/data/com.mi.health 2>/dev/null)
 if [ -n "$UID" ]; then
     iptables -t nat -D OUTPUT -m owner --uid-owner $UID -j BANDAI 2>/dev/null
@@ -10,11 +23,4 @@ if [ -n "$UID" ]; then
     ip6tables -D OUTPUT -m owner --uid-owner $UID -p tcp --dport 443 -j REJECT --reject-with tcp-reset 2>/dev/null
 fi
 
-# 清除系统代理
-settings put global http_proxy :0 2>/dev/null
-settings delete global http_proxy 2>/dev/null
-
-# 杀掉 bandai 进程
-pkill -9 -f bin/bandai 2>/dev/null
-
-# 注意：不删除 /data/adb/band-ai/config.json，保留用户配置方便重装
+echo "BandAI removed, proxy cleared, iptables cleaned."

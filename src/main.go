@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -84,27 +85,72 @@ func askOpenAI(query string, cfg *Config) string {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		buf := make([]byte, 200)
+		buf := make([]byte, 300)
 		n, _ := resp.Body.Read(buf)
 		logf(cfg, "[!] api %d: %s", resp.StatusCode, string(buf[:n]))
+		return ""
+	}
+
+	// 先读完整响应体，方便调试
+	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		logf(cfg, "[!] api read body: %v", err)
 		return ""
 	}
 
 	var out struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content          json.RawMessage `json:"content"`
+				ReasoningContent string          `json:"reasoning_content"`
 			} `json:"message"`
+			Delta struct {
+				Content string `json:"content"`
+			} `json:"delta"`
 		} `json:"choices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		logf(cfg, "[!] api decode: %v", err)
+	if err := json.Unmarshal(respBytes, &out); err != nil {
+		logf(cfg, "[!] api decode: %v body=%s", err, string(respBytes[:min(200, len(respBytes))]))
 		return ""
 	}
 	if len(out.Choices) == 0 {
+		logf(cfg, "[!] api no choices: %s", string(respBytes[:min(300, len(respBytes))]))
 		return ""
 	}
-	reply := trimReply(out.Choices[0].Message.Content, cfg)
+
+	// content 可能是字符串或数组（某些模型返回 [{"type":"text","text":"..."}]）
+	var reply string
+	raw := out.Choices[0].Message.Content
+	if len(raw) > 0 {
+		// 先试字符串
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			reply = s
+		} else {
+			// 试数组格式
+			var arr []struct {
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(raw, &arr) == nil && len(arr) > 0 {
+				reply = arr[0].Text
+			} else {
+				reply = string(raw)
+			}
+		}
+	}
+	// fallback: delta（流式响应的非流式兼容）
+	if reply == "" {
+		reply = out.Choices[0].Delta.Content
+	}
+	// fallback: reasoning_content（deepseek-flash 等推理模型把答案放在这里）
+	if reply == "" {
+		reply = out.Choices[0].Message.ReasoningContent
+	}
+	if reply == "" {
+		logf(cfg, "[!] api empty content: %s", string(respBytes[:min(300, len(respBytes))]))
+		return ""
+	}
+	reply = trimReply(reply, cfg)
 	logf(cfg, "[api] %.1fs model=%s", time.Since(t0).Seconds(), cfg.Model)
 	return reply
 }

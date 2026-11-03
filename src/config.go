@@ -84,6 +84,13 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.MaxReply <= 0 {
 		cfg.MaxReply = 60
 	}
+	// 自动补全 API URL：如果用户只填了 base URL（如 https://api.xxx.com/v1），自动追加 /chat/completions
+	if cfg.APIMode == "openai" && cfg.APIURL != "" {
+		u := strings.TrimRight(cfg.APIURL, "/")
+		if !strings.HasSuffix(u, "/chat/completions") {
+			cfg.APIURL = u + "/chat/completions"
+		}
+	}
 	return cfg, nil
 }
 

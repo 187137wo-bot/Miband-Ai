@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -72,6 +73,42 @@ func ReadFrame(r *bufio.Reader) (*Frame, error) {
 	}
 	f.Payload = payload
 	return f, nil
+}
+
+// ReadMessage 读取一条完整的 WebSocket 消息，自动拼接分片帧。
+// 返回首帧的 opcode 和拼接后的完整 payload。
+// 控制帧（ping/pong/close）在分片中间出现时会被忽略（按 RFC 6455 §5.4 允许）。
+func ReadMessage(r *bufio.Reader) (opcode byte, payload []byte, err error) {
+	first, err := ReadFrame(r)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	// 控制帧或单帧消息直接返回
+	if first.FIN || first.Opcode >= 0x8 {
+		return first.Opcode, first.Payload, nil
+	}
+
+	// 分片消息：拼接 continuation 帧直到 FIN=1
+	var buf bytes.Buffer
+	buf.Write(first.Payload)
+	opcode = first.Opcode
+
+	for {
+		cont, err := ReadFrame(r)
+		if err != nil {
+			return 0, nil, err
+		}
+		// 控制帧可以插在分片中间，跳过
+		if cont.Opcode >= 0x8 {
+			continue
+		}
+		buf.Write(cont.Payload)
+		if cont.FIN {
+			break
+		}
+	}
+	return opcode, buf.Bytes(), nil
 }
 
 // WriteFrame 以服务端身份写帧（不带 mask）。

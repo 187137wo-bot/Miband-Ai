@@ -21,10 +21,17 @@ type State struct {
 	mu       sync.Mutex
 	device   map[string]bool
 	hijacked map[string]bool
+	// P1: 异步改写队列 —— key 是 dialog_id，value 是结果 channel
+	pending      map[string]chan string
+	asyncReplies chan []byte
 }
 
 func NewState() *State {
-	return &State{device: map[string]bool{}, hijacked: map[string]bool{}}
+	return &State{
+		device:   map[string]bool{},
+		hijacked: map[string]bool{},
+		pending:  map[string]chan string{},
+	}
 }
 
 func (s *State) MarkDevice(did string) {
@@ -124,24 +131,26 @@ func rewriteFrame(payload []byte, cfg *Config, st *State) (Action, []byte) {
 		q, _ := pl["query"].(string)
 
 		if st.IsDevice(did) {
-			logf(cfg, "[SKIP] device dialog q=%q", q)
+			logf(cfg, "[SKIP] device dialog did=%s q=%q", did, q)
 			return ActNone, nil
 		}
 		if cfg.HasDeviceKeyword(q) {
 			st.MarkDevice(did)
-			logf(cfg, "[SKIP] keyword q=%q", q)
+			logf(cfg, "[SKIP] keyword did=%s q=%q", did, q)
 			return ActNone, nil
 		}
 		if q == "" {
 			return ActNone, nil
 		}
 
+		old, _ := pl["text"].(string)
+
+		// 同步调 API（MiMo 通常 2-5 秒，可接受）
 		reply := askAPI(q, cfg)
 		if reply == "" {
-			logf(cfg, "[!] empty reply for q=%q", q)
+			logf(cfg, "[!] empty reply for did=%s q=%q", did, q)
 			return ActNone, nil
 		}
-		old, _ := pl["text"].(string)
 		pl["text"] = reply
 		data["payload"] = pl
 		out, err := json.Marshal(data)
@@ -149,13 +158,18 @@ func rewriteFrame(payload []byte, cfg *Config, st *State) (Action, []byte) {
 			return ActNone, nil
 		}
 		st.MarkHijacked(did)
-		logf(cfg, "[REWRITE] q=%q\n          old=%q\n          new=%q", q, old, reply)
+		logf(cfg, "[REWRITE] did=%s q=%q\n          old=%q\n          new=%q", did, q, old, reply)
 		return ActReplace, out
 	}
 
 	if st.IsHijacked(did) {
 		if ns == "AudioPlayer" || (ns == "Template" && name == "PlayInfo") {
 			logf(cfg, "[DROP] %s.%s", ns, name)
+			return ActDrop, nil
+		}
+		// 丢弃小米服务器后续发的 Toast/Text，防止覆盖 bandai 的改写结果
+		if ns == "Template" && (name == "Toast" || name == "Text") {
+			logf(cfg, "[DROP] late %s.%s did=%s", ns, name, did)
 			return ActDrop, nil
 		}
 	}
@@ -197,6 +211,12 @@ func tunnel(client net.Conn, addr string) {
 
 // handleMITM 只对目标域名做 TLS 中间人。client 必须是 bufferedConn。
 func handleMITM(client net.Conn, host string, cfg *Config, ca *CA, st *State) {
+	// P2: 连接级超时，防止 goroutine 永久挂起
+	if tc, ok := client.(*bufferedConn); ok {
+		tc.SetDeadline(time.Now().Add(5 * time.Minute))
+	} else if tc, ok := client.(interface{ SetDeadline(time.Time) error }); ok {
+		tc.SetDeadline(time.Now().Add(5 * time.Minute))
+	}
 	tlsConn := tls.Server(client, &tls.Config{
 		NextProtos: []string{"http/1.1"},
 		GetCertificate: func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -256,20 +276,23 @@ func handleMITM(client net.Conn, host string, cfg *Config, ca *CA, st *State) {
 	}()
 
 	for {
-		f, err := ReadFrame(ur)
+		// P0: 用 ReadMessage 自动拼接分片帧
+		opcode, payload, err := ReadMessage(ur)
 		if err != nil {
 			return
 		}
-		if f.Opcode == opText {
-			act, nb := rewriteFrame(f.Payload, cfg, st)
+
+		if opcode == opText {
+			act, nb := rewriteFrame(payload, cfg, st)
 			switch act {
 			case ActDrop:
 				continue
 			case ActReplace:
-				f.Payload = nb
+				payload = nb
 			}
 		}
-		if err := WriteFrame(tlsConn, f); err != nil {
+
+		if err := WriteFrame(tlsConn, &Frame{FIN: true, Opcode: opcode, Payload: payload}); err != nil {
 			return
 		}
 	}
