@@ -94,6 +94,12 @@ settings delete global http_proxy 2>/dev/null
 (
     trap '' HUP TERM
     while true; do
+        # 关键防护：每轮启动前强制清掉系统代理。
+        # 如果代理残留指向 127.0.0.1:8080 而 bandai 没在跑，
+        # 所有走系统代理的 App 会全部断网（浏览器/抖音等）。
+        settings put global http_proxy :0 2>/dev/null
+        settings delete global http_proxy 2>/dev/null
+
         "$MODDIR/bin/bandai" >> "$BASE/logs/bandai.log" 2>&1 &
         BPID=$!
         echo "$BPID" > "$BASE/bandai.pid"
@@ -108,7 +114,9 @@ settings delete global http_proxy 2>/dev/null
 
         wait "$BPID"
         tproxy_off
-        log "!! bandai exited, tproxy cleared, retry in 5s"
+        settings put global http_proxy :0 2>/dev/null
+        settings delete global http_proxy 2>/dev/null
+        log "!! bandai exited, tproxy+proxy cleared, retry in 5s"
         sleep 5
     done
 ) &
