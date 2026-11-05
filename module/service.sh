@@ -90,6 +90,25 @@ tproxy_off
 settings put global http_proxy :0 2>/dev/null
 settings delete global http_proxy 2>/dev/null
 
+# ---- 2.5 独立看守：脱离本脚本生命周期，bandai 挂了也能清残留 ----
+if [ -f "$MODDIR/guard.sh" ]; then
+    chmod 755 "$MODDIR/guard.sh" 2>/dev/null
+    # 先杀掉旧的看守（重装/重启时可能有残留）
+    pkill -f "guard.sh" 2>/dev/null
+    sleep 1
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$MODDIR/guard.sh" < /dev/null > /dev/null 2>&1 &
+    else
+        nohup "$MODDIR/guard.sh" < /dev/null > /dev/null 2>&1 &
+    fi
+    sleep 1
+    if pidof -s guard.sh >/dev/null 2>&1 || pgrep -f guard.sh >/dev/null 2>&1; then
+        log "guard spawned"
+    else
+        log "!! guard failed to spawn"
+    fi
+fi
+
 # ---- 3. 守护：bandai 活着才装规则，退出立刻卸 ----
 (
     trap '' HUP TERM

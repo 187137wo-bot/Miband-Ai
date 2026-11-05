@@ -148,6 +148,86 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ../
 └── README.md
 ```
 
+## 🚨 故障排查
+
+### 突然没网了（最紧急）
+
+**症状**：手机能连 WiFi/流量，但大部分 App 打不开，只有个别 App（如 B 站）能用。
+
+**原因**：系统 HTTP 代理残留指向 `127.0.0.1:8080`，但 bandai 已被系统杀掉，没有进程监听这个端口，导致所有走系统代理的 App 全部断网。
+
+**急救**（手机终端执行，需要 root）：
+
+```sh
+su -c "settings put global http_proxy :0"
+su -c "settings delete global http_proxy"
+```
+
+**不用终端也行**：
+- WiFi：设置 → WLAN → 长按当前网络 → 修改网络 → 高级 → 代理 → 改为「无」
+- 移动数据：设置 → 移动网络 → 接入点(APN) → 检查「代理」字段为空
+
+**预防**：内置 `guard.sh` 独立看守进程，每 10 秒检查，发现 bandai 已死但代理/iptables 残留就自动清理。
+
+### 手环还是小爱在回答
+
+```sh
+# 1. bandai 是否在跑
+su -c "ps -A | grep bandai"
+
+# 2. iptables 规则是否存在
+su -c "iptables -t nat -L BANDAI -n -v"
+
+# 3. 规则命中计数为 0 说明流量没进来（多半是 App 走 IPv6）
+su -c "ip6tables -L OUTPUT -n -v"
+```
+
+### API 报错
+
+```sh
+su -c "tail -30 /data/adb/band-ai/logs/bandai.log"
+```
+
+| 日志 | 原因 | 解决 |
+|---|---|---|
+| `api 401` | API Key 无效 | Web UI 重新填 |
+| `api 503` | 服务端过载 | 换模型或等一会儿 |
+| `api empty content` | 推理模型答案在 reasoning_content | 已自动关闭思考；仍出现请换非推理模型 |
+| `empty reply` | API 返回空 | 点 Web UI「测试连通性」排查 |
+
+### 配置页面打不开
+
+```sh
+su -c "netstat -tlnp | grep 8082"
+su -c "ps -A | grep bandai"
+```
+
+bandai 没跑就手动启动：
+
+```sh
+su -c "setsid /data/adb/modules/bandai/bin/bandai >> /data/adb/band-ai/logs/bandai.log 2>&1 &"
+```
+
+### 彻底卸载
+
+```sh
+# 1. 清代理
+su -c "settings put global http_proxy :0; settings delete global http_proxy"
+
+# 2. 清 iptables
+su -c "iptables -t nat -F BANDAI; iptables -t nat -X BANDAI"
+
+# 3. 杀进程
+su -c "pkill -9 -f bandai; pkill -9 -f guard.sh"
+
+# 4. 删模块（重启后生效）
+su -c "rm -rf /data/adb/modules/bandai"
+
+# 5. 重启手机
+```
+
+---
+
 ## ⚠️ 免责声明
 
 - 本项目仅供学习研究使用
