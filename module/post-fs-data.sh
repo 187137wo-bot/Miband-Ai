@@ -68,3 +68,22 @@ if [ -d "$SYS" ] && [ -d "$FULL" ] && [ "$(ls "$FULL" 2>/dev/null | wc -l)" -gt 
 else
     log "skip tmpfs system (sys=$([ -d $SYS ] && echo y || echo n) full=$(ls "$FULL" 2>/dev/null | wc -l))"
 fi
+
+# ---- 5. APEX 路径同样要挂载（Android 14 的 Conscrypt 优先读这里）----
+# 这一步必须在这里做：post-fs-data 阶段是全局 namespace，
+# 而 service.sh 只能在 zygote namespace 里挂，对已 fork 的 App 无效。
+if [ -d "$APEX" ] && [ -d "$FULL" ] && [ "$(ls "$FULL" 2>/dev/null | wc -l)" -gt 10 ]; then
+    if mount --bind "$FULL" "$APEX" 2>/dev/null; then
+        GOT=$(ls "$APEX" 2>/dev/null | wc -l)
+        if [ "$GOT" -lt 100 ]; then
+            umount "$APEX" 2>/dev/null
+            log "!! rollback $APEX (only $GOT certs)"
+        else
+            log "bind $APEX ok, $GOT certs"
+        fi
+    else
+        log "!! bind $APEX FAILED"
+    fi
+else
+    log "skip apex (exists=$([ -d $APEX ] && echo y || echo n) full=$(ls "$FULL" 2>/dev/null | wc -l))"
+fi
