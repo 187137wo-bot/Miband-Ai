@@ -184,7 +184,7 @@ func rewriteFrame(payload []byte, cfg *Config, st *State, hist *History) (Action
 // ---------------- 上游 ----------------
 
 func dialUpstream(host string) (*tls.Conn, error) {
-	d := &net.Dialer{Timeout: 10 * time.Second}
+	d := &net.Dialer{Timeout: 10 * time.Second, Resolver: androidResolver}
 	return tls.DialWithDialer(d, "tcp", net.JoinHostPort(host, "443"),
 		&tls.Config{
 			ServerName: host,

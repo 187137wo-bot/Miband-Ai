@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,30 @@ import (
 	"time"
 )
 
+// androidResolver 解决 Android 上 Go 程序无法解析域名的问题。
+//
+// Android 没有 /etc/resolv.conf，系统 DNS 由 netd 管理，纯 Go 静态编译的程序
+// 读不到，会回落到 [::1]:53 导致「connection refused」，表现为 API 全部失败。
+// 这里显式指定公共 DNS 作为解析器。
+var androidResolver = &net.Resolver{
+	PreferGo: true,
+	Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+		d := net.Dialer{Timeout: 3 * time.Second}
+		// 依次尝试国内公共 DNS
+		for _, s := range []string{
+			"223.5.5.5:53",        // 阿里
+			"119.29.29.29:53",     // 腾讯
+			"114.114.114.114:53",  // 114
+		} {
+			if c, err := d.DialContext(ctx, "udp", s); err == nil {
+				return c, nil
+			}
+		}
+		// 都失败时回落到系统默认（可能在部分设备上可用）
+		return d.DialContext(ctx, "udp", address)
+	},
+}
+
 // newHTTPClient 构造 API 客户端。
 // Go 在 Android 上取不到完整的系统根证书池，这里跳过校验；
 // 流量只在本机与固定 API 之间，风险面可控。
@@ -22,6 +47,10 @@ func newHTTPClient(timeout time.Duration) *http.Client {
 		Transport: &http.Transport{
 			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
 			ForceAttemptHTTP2: true,
+			DialContext: (&net.Dialer{
+				Timeout:  10 * time.Second,
+				Resolver: androidResolver,
+			}).DialContext,
 		},
 	}
 }
